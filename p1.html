@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>IoT Air Quality Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --bg:#f3f4f6; --card:#ffffff; --muted:#6b7280; --accent:#0ea5a4; }
+    html,body { height:100%; margin:0; font-family:Roboto, Arial, sans-serif; background:var(--bg); color:#111; }
+    .center { display:flex; align-items:center; justify-content:center; height:100vh; }
+    .box { background:#fff; padding:26px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.08); width:340px; text-align:center; }
+    .box h2 { margin-bottom:12px; color:var(--accent); }
+    input { width:90%; padding:8px; margin:6px 0; border:1px solid #ccc; border-radius:6px; font-size:15px; }
+    .btn { background:var(--accent); color:#fff; padding:10px 14px; border-radius:8px; border:none; cursor:pointer; font-size:16px; }
+    .link { color:var(--accent); font-size:14px; cursor:pointer; display:block; margin-top:6px; }
+    .container { max-width:1100px; margin:20px auto; padding:18px; display:none; }
+    header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+    h1 { font-size:20px; margin:0; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; margin-bottom:14px; }
+    .card { background:var(--card); padding:14px; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.06); text-align:center; }
+    .metric-title { font-size:14px; color:var(--muted); }
+    .metric-value { font-size:26px; font-weight:700; margin-top:6px; }
+    .small { font-size:13px; color:var(--muted); }
+    .charts { display:grid; grid-template-columns:1fr; gap:12px; }
+    canvas { background:transparent; }
+    .controls { display:flex; gap:8px; align-items:center; }
+    .logout-btn { background:#ef4444; color:#fff; padding:8px 12px; border-radius:8px; border:none; cursor:pointer; }
+    footer { margin-top:14px; text-align:center; color:var(--muted); font-size:13px; }
+    @media (max-width:800px){ .grid{ grid-template-columns:1fr; } .container{ padding:12px; } }
+  </style>
+</head>
+<body>
+
+  <!-- Login Page -->
+  <div class="center" id="loginPage">
+    <div class="box">
+      <h2>IoT Air Quality Login</h2>
+      <input type="text" id="loginUser" placeholder="Username" />
+      <input type="password" id="loginPass" placeholder="Password" />
+      <button id="loginBtn" class="btn">Login</button>
+      <span class="link" id="registerLink">New User? Register</span>
+      <span class="link" id="forgotLink">Forgot Password?</span>
+      <p style="margin-top:10px;color:var(--muted);font-size:13px;">Developed using ESP32 and IoT Cloud</p>
+    </div>
+  </div>
+
+  <!-- Registration Page -->
+  <div class="center" id="registerPage" style="display:none;">
+    <div class="box">
+      <h2>New Registration</h2>
+      <input type="text" id="newUser" placeholder="New Username" />
+      <input type="password" id="newPass" placeholder="New Password" />
+      <button id="registerBtn" class="btn">Register</button>
+      <span class="link" id="backToLogin1">Back to Login</span>
+    </div>
+  </div>
+
+  <!-- Forgot Password Page -->
+  <div class="center" id="forgotPage" style="display:none;">
+    <div class="box">
+      <h2>Reset Password</h2>
+      <input type="text" id="resetUser" placeholder="Username" />
+      <input type="password" id="resetPass" placeholder="New Password" />
+      <button id="resetBtn" class="btn">Reset</button>
+      <span class="link" id="backToLogin2">Back to Login</span>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="container" id="dashboard">
+    <header>
+      <div>
+        <h1>IoT Air Quality Dashboard</h1>
+        <div class="small">Live readings from your ESP32 sensors</div>
+      </div>
+      <div class="controls">
+        <button id="refreshBtn" class="btn">Refresh</button>
+        <select id="intervalSel">
+          <option value="5">5s</option>
+          <option value="15" selected>15s</option>
+          <option value="30">30s</option>
+          <option value="60">60s</option>
+        </select>
+        <button id="logoutBtn" class="logout-btn">Logout</button>
+      </div>
+    </header>
+
+    <section class="grid">
+      <div class="card">
+        <div class="metric-title">Temperature (°C)</div>
+        <div id="tempVal" class="metric-value">--</div>
+        <div class="small">Last updated: <span id="tempTime">--</span></div>
+      </div>
+
+      <div class="card">
+        <div class="metric-title">Humidity (%)</div>
+        <div id="humVal" class="metric-value">--</div>
+        <div class="small">Last updated: <span id="humTime">--</span></div>
+      </div>
+
+      <div class="card">
+        <div class="metric-title">Air Quality (MQ-135 raw)</div>
+        <div id="mqVal" class="metric-value">--</div>
+        <div class="small">Lower is better (calibrate to convert to PPM)</div>
+      </div>
+
+      <div class="card" id="statusCard">
+        <div class="metric-title">Air Quality Status</div>
+        <div id="airStatus" class="metric-value" style="color:gray;">--</div>
+        <div class="small" id="statusMsg">Analyzing air quality...</div>
+      </div>
+    </section>
+
+    <section class="card charts">
+      <canvas id="lineChart" height="160"></canvas>
+    </section>
+
+    <footer>Developed using ESP32 and IoT Cloud</footer>
+  </div>
+
+  <script>
+    // Navigation between pages
+    const loginPage = document.getElementById('loginPage');
+    const registerPage = document.getElementById('registerPage');
+    const forgotPage = document.getElementById('forgotPage');
+    const dashboard = document.getElementById('dashboard');
+
+    document.getElementById('registerLink').onclick = () => { loginPage.style.display = 'none'; registerPage.style.display = 'flex'; };
+    document.getElementById('forgotLink').onclick = () => { loginPage.style.display = 'none'; forgotPage.style.display = 'flex'; };
+    document.getElementById('backToLogin1').onclick = () => { registerPage.style.display = 'none'; loginPage.style.display = 'flex'; };
+    document.getElementById('backToLogin2').onclick = () => { forgotPage.style.display = 'none'; loginPage.style.display = 'flex'; };
+
+    // Registration
+    document.getElementById('registerBtn').onclick = () => {
+      const user = document.getElementById('newUser').value.trim();
+      const pass = document.getElementById('newPass').value.trim();
+      if (!user || !pass) { alert("Enter both username and password!"); return; }
+      localStorage.setItem(user, pass);
+      alert("Registration successful!");
+      registerPage.style.display = 'none';
+      loginPage.style.display = 'flex';
+    };
+
+    // Forgot password reset
+    document.getElementById('resetBtn').onclick = () => {
+      const user = document.getElementById('resetUser').value.trim();
+      const pass = document.getElementById('resetPass').value.trim();
+      if (!localStorage.getItem(user)) { alert("Username not found!"); return; }
+      localStorage.setItem(user, pass);
+      alert("Password reset successful!");
+      forgotPage.style.display = 'none';
+      loginPage.style.display = 'flex';
+    };
+
+    // Login
+    document.getElementById('loginBtn').onclick = () => {
+      const user = document.getElementById('loginUser').value.trim();
+      const pass = document.getElementById('loginPass').value.trim();
+      const stored = localStorage.getItem(user);
+      if ((user === "admin" && pass === "1234") || (stored && stored === pass)) {
+        loginPage.style.display = 'none';
+        dashboard.style.display = 'block';
+        initDashboard();
+      } else {
+        alert("Invalid username or password!");
+      }
+    };
+
+    document.getElementById('logoutBtn').onclick = () => {
+      dashboard.style.display = 'none';
+      loginPage.style.display = 'flex';
+      if (pollTimer) clearInterval(pollTimer);
+    };
+
+    // Dashboard logic
+    const THINGSPEAK_CHANNEL_ID = 'YOUR_CHANNEL_ID';
+    const THINGSPEAK_READ_API_KEY = 'YOUR_READ_API_KEY';
+    let pollInterval = 15, pollTimer = null, lineChart;
+
+    function setupChart() {
+      const ctx = document.getElementById('lineChart').getContext('2d');
+      const data = { labels: [], datasets: [
+        { label:'Temperature (°C)', data:[], borderWidth:2, fill:false, tension:0.2 },
+        { label:'Humidity (%)', data:[], borderWidth:2, fill:false, tension:0.2 },
+        { label:'Air Quality (MQ135)', data:[], borderWidth:2, fill:false, tension:0.2 }
+      ]};
+      lineChart = new Chart(ctx, { type:'line', data:data, options:{ responsive:true, plugins:{legend:{position:'top'}}, scales:{x:{display:true},y:{display:true}} } });
+    }
+
+    function pushAndLimit(arr, val, limit=40){ arr.push(val); if(arr.length>limit) arr.shift(); }
+
+    async function fetchData() {
+      try {
+        const url = `https://api.thingspeak.com/channels/${THINGSPEAK_CHANNEL_ID}/feeds.json?api_key=${THINGSPEAK_READ_API_KEY}&results=1`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const feed = json.feeds && json.feeds[0] ? json.feeds[0] : null;
+        if (!feed) return;
+
+        const temp = feed.field1 ? parseFloat(feed.field1) : null;
+        const hum = feed.field2 ? parseFloat(feed.field2) : null;
+        const mq = feed.field3 ? parseFloat(feed.field3) : null;
+        const timeStr = new Date(feed.created_at).toLocaleTimeString();
+
+        document.getElementById('tempVal').textContent = temp ?? '--';
+        document.getElementById('humVal').textContent = hum ?? '--';
+        document.getElementById('mqVal').textContent = mq ?? '--';
+        document.getElementById('tempTime').textContent = timeStr;
+        document.getElementById('humTime').textContent = timeStr;
+
+        // Update chart
+        pushAndLimit(lineChart.data.labels, timeStr);
+        pushAndLimit(lineChart.data.datasets[0].data, temp);
+        pushAndLimit(lineChart.data.datasets[1].data, hum);
+        pushAndLimit(lineChart.data.datasets[2].data, mq);
+        lineChart.update();
+
+        // Determine Air Quality Status
+        let airStatusText = "", color = "";
+        if (mq < 300) { airStatusText = "Good Air Quality"; color = "green"; }
+        else if (mq >= 300 && mq < 700) { airStatusText = "Moderate Air Quality"; color = "orange"; }
+        else if (mq >= 700) { airStatusText = "Poor Air Quality"; color = "red"; }
+        else { airStatusText = "No Data"; color = "gray"; }
+
+        document.getElementById("airStatus").textContent = airStatusText;
+        document.getElementById("airStatus").style.color = color;
+        document.getElementById("statusMsg").textContent = `MQ135 Reading: ${mq}`;
+      } catch (err) {
+        console.error("Error fetching data:", err);
+      }
+    }
+
+    document.getElementById('refreshBtn').onclick = fetchData;
+    document.getElementById('intervalSel').onchange = (e) => {
+      pollInterval = parseInt(e.target.value,10);
+      restartPoll();
+    };
+
+    function restartPoll(){ if(pollTimer) clearInterval(pollTimer); pollTimer=setInterval(fetchData,pollInterval*1000); }
+    function initDashboard(){ setupChart(); fetchData(); restartPoll(); }
+  </script>
+
+</body>
+</html>
